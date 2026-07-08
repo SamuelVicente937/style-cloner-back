@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import postcss from 'postcss';
 import { colord, extend } from 'colord';
 import namesPlugin from 'colord/plugins/names';
+import {
+  COLOR_SOURCES,
+  CssColorSource,
+  PaletteEntry,
+} from '../groq/groq.types';
 
 // Enables parsing CSS named colors ("red", "transparent", etc.) in addition
 // to the rgb()/hsl()/hex formats colord supports out of the box.
@@ -18,12 +23,14 @@ export interface Typography {
 }
 
 /**
- * Intermediate parsed result. `palette` here is a deduped list of hex
- * colors only — assigning a semantic `role`/`variable` to each color is
- * Sprint 2 (Groq) work, not part of this shape.
+ * Intermediate parsed result. `palette` is a deduped list of hex colors,
+ * each tagged with the CSS properties that produced it (`sources`) —
+ * origin tracking that lets Groq deterministically drop `border-color`-only
+ * artifacts. Assigning a semantic `role`/`variable` to each retained color
+ * is Sprint 2 (Groq) work, not part of this shape.
  */
 export interface ParsedStyles {
-  palette: string[];
+  palette: PaletteEntry[];
   typography: Typography;
   spacing: string[];
   radii: string[];
@@ -52,24 +59,35 @@ export class ParserService {
     };
   }
 
-  private parsePalette(rawStyles: Record<string, string[]>): string[] {
-    const colorValues = [
-      ...(rawStyles['color'] ?? []),
-      ...(rawStyles['background-color'] ?? []),
-      ...(rawStyles['border-color'] ?? []),
-    ];
+  /**
+   * Groups every valid, non-transparent color value by its resolved hex,
+   * recording which CSS properties (`sources`) produced it. `border-color`
+   * always resolves a computed value even when an element renders no
+   * visible border, so a hex whose ONLY source is `border-color` is a
+   * false-positive artifact — this origin tracking is what lets
+   * `GroqService.analyze()` drop those deterministically instead of
+   * guessing from aesthetics.
+   */
+  private parsePalette(rawStyles: Record<string, string[]>): PaletteEntry[] {
+    const sourcesByHex = new Map<string, Set<CssColorSource>>();
 
-    const hexColors = new Set<string>();
+    for (const property of COLOR_SOURCES) {
+      for (const value of rawStyles[property] ?? []) {
+        const color = colord(value);
+        if (!color.isValid()) continue;
+        if (color.alpha() === 0) continue; // fully transparent — not a meaningful palette entry
 
-    for (const value of colorValues) {
-      const color = colord(value);
-      if (!color.isValid()) continue;
-      if (color.alpha() === 0) continue; // fully transparent — not a meaningful palette entry
-
-      hexColors.add(color.toHex());
+        const hex = color.toHex();
+        const sources = sourcesByHex.get(hex) ?? new Set<CssColorSource>();
+        sources.add(property);
+        sourcesByHex.set(hex, sources);
+      }
     }
 
-    return Array.from(hexColors);
+    return Array.from(sourcesByHex, ([hex, sources]) => ({
+      hex,
+      sources: Array.from(sources),
+    }));
   }
 
   private parseTypography(rawStyles: Record<string, string[]>): Typography {
