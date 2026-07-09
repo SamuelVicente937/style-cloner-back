@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ScraperService } from '../scraper/scraper.service';
-import { ParserService, ParsedStyles } from '../parser/parser.service';
+import { ParserService } from '../parser/parser.service';
 import { GroqService } from '../groq/groq.service';
 import { GeneratorService } from '../generator/generator.service';
+import { ClassifiedStyles } from './analyze.types';
 
 @Injectable()
 export class AnalyzeService {
@@ -14,20 +15,23 @@ export class AnalyzeService {
   ) {}
 
   /**
-   * Sprint 1 pipeline: scrape raw computed styles and parse them into
-   * deduped design tokens.
+   * Sprint 1+2 pipeline: scrape raw computed styles, parse them into
+   * deduped design tokens, then classify the palette into semantic
+   * `{ hex, role, variable }` entries via Groq. A Groq failure propagates
+   * uncaught — no partial/unclassified fallback is returned.
    *
    * Deferred to later sprints (do NOT implement here):
-   * - Sprint 2: GroqService classifies palette colors into semantic
-   *   `role`/`variable` pairs (the full `PaletteColor` shape).
    * - Sprint 3: GeneratorService builds the downloadable ZIP and
    *   `downloadUrl`.
    *
    * The full `Analysis` contract (frontend `analysis.types.ts`) is only
-   * assembled once those pieces exist.
+   * assembled once that piece exists.
    */
-  async analyze(url: string): Promise<ParsedStyles> {
+  async analyze(url: string): Promise<ClassifiedStyles> {
     const rawStyles = await this.scraper.scrape(url);
-    return this.parser.parse(rawStyles);
+    const parsed = this.parser.parse(rawStyles);
+    const palette = await this.groq.analyze(parsed.palette);
+
+    return { ...parsed, palette };
   }
 }
