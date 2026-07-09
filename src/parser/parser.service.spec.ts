@@ -13,7 +13,7 @@ describe('ParserService', () => {
   });
 
   describe('palette', () => {
-    it('normalizes rgb, hsl, and named colors to deduped hex values', () => {
+    it('normalizes rgb, hsl, and named colors to deduped hex entries tagged by source', () => {
       const result = service.parse({
         color: ['rgb(255, 0, 0)', 'red', '#ff0000'],
         'background-color': ['hsl(0, 0%, 100%)'],
@@ -21,7 +21,10 @@ describe('ParserService', () => {
       });
 
       expect(result.palette).toEqual(
-        expect.arrayContaining(['#ff0000', '#ffffff']),
+        expect.arrayContaining([
+          { hex: '#ff0000', sources: ['color'] },
+          { hex: '#ffffff', sources: ['background-color'] },
+        ]),
       );
       expect(result.palette).toHaveLength(2);
     });
@@ -33,13 +36,58 @@ describe('ParserService', () => {
         'border-color': [],
       });
 
-      expect(result.palette).toEqual(['#0a141e']);
+      expect(result.palette).toEqual([
+        { hex: '#0a141e', sources: ['background-color'] },
+      ]);
     });
 
     it('returns an empty palette for empty input', () => {
       const result = service.parse({});
 
       expect(result.palette).toEqual([]);
+    });
+
+    it('tags a hex sourced only from border-color so it is identifiable as a border-only artifact', () => {
+      const result = service.parse({
+        'border-color': ['#123456'],
+      });
+
+      expect(result.palette).toEqual([
+        { hex: '#123456', sources: ['border-color'] },
+      ]);
+    });
+
+    it('accumulates every contributing source for a hex shared across properties', () => {
+      const result = service.parse({
+        color: ['#123456'],
+        'border-color': ['#123456'],
+      });
+
+      expect(result.palette).toHaveLength(1);
+      expect(result.palette[0].hex).toBe('#123456');
+      expect(result.palette[0].sources).toEqual(
+        expect.arrayContaining(['color', 'border-color']),
+      );
+      expect(result.palette[0].sources).toHaveLength(2);
+    });
+
+    it('distinguishes a border-only hex from a multi-source hex in the same palette', () => {
+      const result = service.parse({
+        color: ['#111111'],
+        'border-color': ['#111111', '#222222'],
+      });
+
+      const multiSource = result.palette.find(
+        (entry) => entry.hex === '#111111',
+      );
+      const borderOnly = result.palette.find(
+        (entry) => entry.hex === '#222222',
+      );
+
+      expect(multiSource?.sources).toEqual(
+        expect.arrayContaining(['color', 'border-color']),
+      );
+      expect(borderOnly?.sources).toEqual(['border-color']);
     });
   });
 
