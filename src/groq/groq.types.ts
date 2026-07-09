@@ -29,7 +29,8 @@ export interface PaletteEntry {
   sources: CssColorSource[];
 }
 
-const COLOR_ROLES = [
+/** Semantic color roles — mirrors frontend PaletteColor.role (10 roles). */
+export const COLOR_ROLES = [
   'primary',
   'secondary',
   'accent',
@@ -40,7 +41,7 @@ const COLOR_ROLES = [
   'error',
   'success',
   'warning',
-] as const; // mirrors frontend PaletteColor.role — 10 roles
+] as const;
 
 export type ColorRole = (typeof COLOR_ROLES)[number];
 
